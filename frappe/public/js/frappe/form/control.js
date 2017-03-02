@@ -1315,13 +1315,19 @@ frappe.ui.form.ControlLink = frappe.ui.form.ControlData.extend({
 		frappe._from_link = this;
 		frappe._from_link_scrollY = $(document).scrollTop();
 
+		
+		// JDLP 2017-01-04
+		// Necessaire pour passer en référence le doc au QuickEntry
+		// Si il y à un form enfant passer celui en reference plustôt que le parent
+		var ref_doc = me.frm.doc;
+		var ref_doc = (me.frm.cur_grid != undefined) ? me.frm.cur_grid.doc : me.frm.doc;
 		frappe.ui.form.quick_entry(doctype, function(doc) {
 			if(me.frm) {
 				me.parse_validate_and_set_in_model(doc.name);
 			} else {
 				me.set_value(doc.name);
 			}
-		});
+		}, ref_doc);// JDLP 2016-12-23
 
 		return false;
 	},
