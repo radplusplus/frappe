@@ -103,6 +103,8 @@ def sync_customizations_for_doctype(data):
 	update_schema = False
 
 	def sync(key, custom_doctype, doctype_fieldname):
+		error_message = ("\n custom_doctype :" + custom_doctype + " doctype_fieldname : "+ doctype_fieldname)
+        frappe.errprint(error_message)
 		frappe.db.sql('delete from `tab{0}` where `{1}`=%s'.format(custom_doctype, doctype_fieldname),
 			doctype)
 
