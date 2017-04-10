@@ -498,6 +498,7 @@ frappe.views.ReportView = frappe.ui.Listing.extend({
 								}
 							});
 							me.dataView.updateItem(item.id, new_item);
+							me.refresh(); // RENMAI - 2017-04-10 - reload la page après une mise a jour.
 						}
 					});
 				}
