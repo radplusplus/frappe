@@ -106,28 +106,14 @@ def sync_customizations_for_doctype(data):
 		for d in data[key]:
 			frappe.db.sql('delete from `tab{0}` where `{1}`=%s'.format(custom_doctype, doctype_fieldname),
 			d['name'])
-		
-		#frappe.db.sql('delete from `tab{0}` where `{1}`=%s'.format(custom_doctype, doctype_fieldname),
-		#	doctype)
 
-		for d in data[key]:
-			d['doctype'] = custom_doctype
-			doc = frappe.get_doc(d)
-			doc.db_insert()
-			
-	def sync_custom_field(key, custom_doctype, doctype_fieldname):
-	
-		for d in data[key]:
-			frappe.db.sql('delete from `tab{0}` where `{1}`=%s'.format(custom_doctype, doctype_fieldname),
-			d['name'])
-		
 		for d in data[key]:
 			d['doctype'] = custom_doctype
 			doc = frappe.get_doc(d)
 			doc.db_insert()
 
 	if data['custom_fields']:
-		sync_custom_field('custom_fields', 'Custom Field', 'name')
+		sync('custom_fields', 'Custom Field', 'name')
 		update_schema = True
 
 	if data['property_setters']:
