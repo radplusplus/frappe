@@ -108,7 +108,7 @@ def sync_customizations_for_doctype(data):
 			d['name'])
 
 		for d in data[key]:
-			if not frappe.db.exists(custom_doctype, doctype_fieldname): # renmai - pour contrer doublon.
+			if not frappe.db.exists(custom_doctype, d['name']): # renmai - pour contrer doublon.
 				d['doctype'] = custom_doctype
 				doc = frappe.get_doc(d)
 				doc.db_insert()
