@@ -1,6 +1,6 @@
 frappe.provide('frappe.ui.form');
 
-frappe.ui.form.quick_entry = function(doctype, success, source_doc = null) {
+frappe.ui.form.quick_entry = function(doctype, success) {
 	frappe.model.with_doctype(doctype, function() {
 		var mandatory = $.map(frappe.get_meta(doctype).fields,
 			function(d) { return (d.reqd || d.bold && !d.read_only) ? d : null });
