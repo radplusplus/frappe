@@ -17,7 +17,10 @@ import re
 import frappe.model.meta
 from frappe.utils import now, get_datetime, cstr
 from frappe import _
-from types import StringType, UnicodeType
+from six import text_type, binary_type, string_types, integer_types
+from frappe.model.utils.link_count import flush_local_link_count
+from six import iteritems, text_type
+from frappe.utils.background_jobs import execute_job, get_queue
 
 class Database:
 	"""
@@ -48,12 +51,24 @@ class Database:
 	def connect(self):
 		"""Connects to a database as set in `site_config.json`."""
 		warnings.filterwarnings('ignore', category=MySQLdb.Warning)
-		self._conn = MySQLdb.connect(user=self.user, host=self.host, passwd=self.password,
-			use_unicode=True, charset='utf8')
+		usessl = 0
+		if frappe.conf.db_ssl_ca and frappe.conf.db_ssl_cert and frappe.conf.db_ssl_key:
+			usessl = 1
+			self.ssl = {
+				'ca':frappe.conf.db_ssl_ca,
+				'cert':frappe.conf.db_ssl_cert,
+				'key':frappe.conf.db_ssl_key
+			}
+		if usessl:
+			self._conn = MySQLdb.connect(self.host, self.user or '', self.password or '',
+				use_unicode=True, charset='utf8mb4', ssl=self.ssl)
+		else:
+			self._conn = MySQLdb.connect(self.host, self.user or '', self.password or '',
+				use_unicode=True, charset='utf8mb4')
 		self._conn.converter[246]=float
 		self._conn.converter[12]=get_datetime
-		self._conn.encoders[UnicodeWithAttrs] = self._conn.encoders[UnicodeType]
-		self._conn.encoders[DateTimeDeltaType] = self._conn.encoders[StringType]
+		self._conn.encoders[UnicodeWithAttrs] = self._conn.encoders[text_type]
+		self._conn.encoders[DateTimeDeltaType] = self._conn.encoders[binary_type]
 
 		MYSQL_OPTION_MULTI_STATEMENTS_OFF = 1
 		self._conn.set_server_option(MYSQL_OPTION_MULTI_STATEMENTS_OFF)
@@ -147,7 +162,7 @@ class Database:
 
 				self._cursor.execute(query)
 
-		except Exception, e:
+		except Exception as e:
 			# ignore data definition errors
 			if ignore_ddl and e.args[0] in (1146,1054,1091):
 				pass
@@ -216,7 +231,7 @@ class Database:
 		could cause the system to hang."""
 		if self.transaction_writes and \
 			query and query.strip().split()[0].lower() in ['start', 'alter', 'drop', 'create', "begin", "truncate"]:
-			raise Exception, 'This statement can cause implicit commit'
+			raise Exception('This statement can cause implicit commit')
 
 		if query and query.strip().lower() in ('commit', 'rollback'):
 			self.transaction_writes = 0
@@ -243,7 +258,7 @@ class Database:
 				else:
 					val = r[i]
 
-				if as_utf8 and type(val) is unicode:
+				if as_utf8 and type(val) is text_type:
 					val = val.encode('utf-8')
 				row_dict[self._cursor.description[i][0]] = val
 			ret.append(row_dict)
@@ -253,7 +268,7 @@ class Database:
 		"""Returns true if the first row in the result has a Date, Datetime, Long Int."""
 		if result and result[0]:
 			for v in result[0]:
-				if isinstance(v, (datetime.date, datetime.timedelta, datetime.datetime, long)):
+				if isinstance(v, (datetime.date, datetime.timedelta, datetime.datetime, integer_types)):
 					return True
 				if formatted and isinstance(v, (int, float)):
 					return True
@@ -270,18 +285,18 @@ class Database:
 
 		from frappe.utils import formatdate, fmt_money
 
-		if isinstance(v, (datetime.date, datetime.timedelta, datetime.datetime, long)):
+		if isinstance(v, (datetime.date, datetime.timedelta, datetime.datetime, integer_types)):
 			if isinstance(v, datetime.date):
-				v = unicode(v)
+				v = text_type(v)
 				if formatted:
 					v = formatdate(v)
 
 			# time
 			elif isinstance(v, (datetime.timedelta, datetime.datetime)):
-				v = unicode(v)
+				v = text_type(v)
 
 			# long
-			elif isinstance(v, long):
+			elif isinstance(v, integer_types):
 				v=int(v)
 
 		# convert to strings... (if formatted)
@@ -289,7 +304,7 @@ class Database:
 			if isinstance(v, float):
 				v=fmt_money(v)
 			elif isinstance(v, int):
-				v = unicode(v)
+				v = text_type(v)
 
 		return v
 
@@ -304,7 +319,7 @@ class Database:
 					val = self.convert_to_simple_type(c, formatted)
 				else:
 					val = c
-				if as_utf8 and type(val) is unicode:
+				if as_utf8 and type(val) is text_type:
 					val = val.encode('utf-8')
 				nr.append(val)
 			nres.append(nr)
@@ -316,7 +331,7 @@ class Database:
 		for r in res:
 			nr = []
 			for c in r:
-				if type(c) is unicode:
+				if type(c) is text_type:
 					c = c.encode('utf-8')
 					nr.append(self.convert_to_simple_type(c, formatted))
 			nres.append(nr)
@@ -369,7 +384,7 @@ class Database:
 
 			conditions.append(condition)
 
-		if isinstance(filters, basestring):
+		if isinstance(filters, string_types):
 			filters = { "name": filters }
 
 		for f in filters:
@@ -408,7 +423,8 @@ class Database:
 			frappe.db.get_value("System Settings", None, "date_format")
 		"""
 
-		ret = self.get_values(doctype, filters, fieldname, ignore, as_dict, debug, order_by, cache=cache)
+		ret = self.get_values(doctype, filters, fieldname, ignore, as_dict, debug,
+			order_by, cache=cache)
 
 		return ((len(ret[0]) > 1 or as_dict) and ret[0] or ret[0][0]) if ret else None
 
@@ -433,9 +449,11 @@ class Database:
 			user = frappe.db.get_values("User", "test@example.com", "*")[0]
 		"""
 		out = None
-		if cache and isinstance(filters, basestring) and \
+		if cache and isinstance(filters, string_types) and \
 			(doctype, filters, fieldname) in self.value_cache:
 			return self.value_cache[(doctype, filters, fieldname)]
+
+		if not order_by: order_by = 'modified desc'
 
 		if isinstance(filters, list):
 			out = self._get_value_for_many_names(doctype, filters, fieldname, debug=debug)
@@ -443,7 +461,7 @@ class Database:
 		else:
 			fields = fieldname
 			if fieldname!="*":
-				if isinstance(fieldname, basestring):
+				if isinstance(fieldname, string_types):
 					fields = [fieldname]
 				else:
 					fields = fieldname
@@ -451,7 +469,7 @@ class Database:
 			if (filters is not None) and (filters!=doctype or doctype=="DocType"):
 				try:
 					out = self._get_values_from_table(fields, filters, doctype, as_dict, debug, order_by, update)
-				except Exception, e:
+				except Exception as e:
 					if ignore and e.args[0] in (1146, 1054):
 						# table or column not found, return None
 						out = None
@@ -463,7 +481,7 @@ class Database:
 			else:
 				out = self.get_values_from_single(fields, filters, doctype, as_dict, debug, update)
 
-		if cache and isinstance(filters, basestring):
+		if cache and isinstance(filters, string_types):
 			self.value_cache[(doctype, filters, fieldname)] = out
 
 		return out
@@ -580,13 +598,14 @@ class Database:
 
 		order_by = ("order by " + order_by) if order_by else ""
 
-		r = self.sql("select {0} from `tab{1}` where {2} {3}".format(fl, doctype,
-			conditions, order_by), values, as_dict=as_dict, debug=debug, update=update)
+		r = self.sql("select {0} from `tab{1}` {2} {3} {4}"
+			.format(fl, doctype, "where" if conditions else "", conditions, order_by), values, 
+			as_dict=as_dict, debug=debug, update=update)
 
 		return r
 
 	def _get_value_for_many_names(self, doctype, names, field, debug=False):
-		names = filter(None, names)
+		names = list(filter(None, names))
 
 		if names:
 			return dict(self.sql("select name, `%s` from `tab%s` where name in (%s)" \
@@ -649,8 +668,8 @@ class Database:
 				delete from tabSingles
 				where field in ({0}) and
 					doctype=%s'''.format(', '.join(['%s']*len(keys))),
-					keys + [dt], debug=debug)
-			for key, value in to_update.iteritems():
+					list(keys) + [dt], debug=debug)
+			for key, value in iteritems(to_update):
 				self.sql('''insert into tabSingles(doctype, field, value) values (%s, %s, %s)''',
 					(dt, key, value), debug=debug)
 
@@ -719,13 +738,14 @@ class Database:
 		self.sql("commit")
 		frappe.local.rollback_observers = []
 		self.flush_realtime_log()
+		enqueue_jobs_after_commit()
+		flush_local_link_count()
 
 	def flush_realtime_log(self):
 		for args in frappe.local.realtime_log:
 			frappe.async.emit_via_redis(*args)
 
 		frappe.local.realtime_log = []
-
 
 	def rollback(self):
 		"""`ROLLBACK` current transaction."""
@@ -756,7 +776,7 @@ class Database:
 
 		:param dt: DocType name.
 		:param dn: Document name or filter dict."""
-		if isinstance(dt, basestring):
+		if isinstance(dt, string_types):
 			if dt!="DocType" and dt==dn:
 				return True # single always exists (!)
 			try:
@@ -794,9 +814,13 @@ class Database:
 			where creation >= %s""".format(doctype=doctype),
 			now_datetime() - relativedelta(minutes=minutes))[0][0]
 
+	def get_db_table_columns(self, table):
+		"""Returns list of column names from given table."""
+		return [r[0] for r in self.sql("DESC `%s`" % table)]
+
 	def get_table_columns(self, doctype):
 		"""Returns list of column names from given doctype."""
-		return [r[0] for r in self.sql("DESC `tab%s`" % doctype)]
+		return self.get_db_table_columns('tab' + doctype)
 
 	def has_column(self, doctype, column):
 		"""Returns True if column exists in database."""
@@ -817,7 +841,7 @@ class Database:
 				add index `%s`(%s)""" % (doctype, index_name, ", ".join(fields)))
 
 	def add_unique(self, doctype, fields, constraint_name=None):
-		if isinstance(fields, basestring):
+		if isinstance(fields, string_types):
 			fields = [fields]
 		if not constraint_name:
 			constraint_name = "unique_" + "_".join(fields)
@@ -844,10 +868,10 @@ class Database:
 
 	def escape(self, s, percent=True):
 		"""Excape quotes and percent in given string."""
-		if isinstance(s, unicode):
+		if isinstance(s, text_type):
 			s = (s or "").encode("utf-8")
 
-		s = unicode(MySQLdb.escape_string(s), "utf-8").replace("`", "\\`")
+		s = text_type(MySQLdb.escape_string(s), "utf-8").replace("`", "\\`")
 
 		# NOTE separating % escape, because % escape should only be done when using LIKE operator
 		# or when you use python format string to generate query that already has a %s
@@ -858,3 +882,11 @@ class Database:
 			s = s.replace("%", "%%")
 
 		return s
+
+def enqueue_jobs_after_commit():
+	if frappe.flags.enqueue_after_commit and len(frappe.flags.enqueue_after_commit) > 0:
+		for job in frappe.flags.enqueue_after_commit:
+			q = get_queue(job.get("queue"), async=job.get("async"))
+			q.enqueue_call(execute_job, timeout=job.get("timeout"),
+							kwargs=job.get("queue_args"))
+		frappe.flags.enqueue_after_commit = []

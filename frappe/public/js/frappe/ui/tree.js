@@ -33,7 +33,7 @@ frappe.ui.Tree = Class.extend({
 	toggle: function() {
 		this.get_selected_node().toggle();
 	}
-})
+});
 
 frappe.ui.TreeNode = Class.extend({
 	init: function(args) {
@@ -61,11 +61,12 @@ frappe.ui.TreeNode = Class.extend({
 				if(me.tree.toolbar) {
 					me.show_toolbar();
 				}
-				if(me.toggle_on_click) {
-					me.toggle();
-				}
-				if(me.tree.click)
+				if(me.tree.click) {
 					me.tree.click(this);
+				}
+				if(me.tree.onclick) {
+					me.tree.onclick(me);
+				}
 			})
 			.data('label', this.label)
 			.data('node', this)
@@ -87,8 +88,12 @@ frappe.ui.TreeNode = Class.extend({
 		$(icon_html + ' <a class="tree-label grey h6">' + this.get_label() + "</a>").
 			appendTo(this.tree_link);
 
-		this.tree_link.find('i, a').click(function() {
+		this.tree_link.find('i').click(function() {
 			setTimeout(function() { me.toolbar.find(".btn-expand").click(); }, 100);
+		});
+
+		this.tree_link.find('a').click(function() {
+			if(!me.expanded) setTimeout(function() { me.toolbar.find(".btn-expand").click(); }, 100);
 		});
 	},
 	get_label: function() {
@@ -226,7 +231,7 @@ frappe.ui.TreeNode = Class.extend({
 	},
 	load: function(callback) {
 		var node = this;
-		args = $.extend(this.tree.args || {}, {
+		var args = $.extend(this.tree.args || {}, {
 			parent: this.data.value
 		});
 

@@ -22,7 +22,7 @@ frappe.DataImportTool = Class.extend({
 		}
 
 		if(in_list(frappe.boot.user.can_import, doctype)) {
-				this.select.val(doctype).change();
+			this.select.val(doctype).change();
 		}
 
 		frappe.route_options = null;
@@ -99,37 +99,44 @@ frappe.DataImportTool = Class.extend({
 			parent_doctype: doctype,
 			select_columns: JSON.stringify(columns),
 			with_data: with_data ? 'Yes' : 'No',
-			all_doctypes: 'Yes'
+			all_doctypes: 'Yes',
+			from_data_import: 'Yes',
+			excel_format: this.page.main.find(".excel-check").is(":checked") ? 'Yes' : 'No'
 		}
 	},
 	make_upload: function() {
 		var me = this;
 		frappe.upload.make({
+			no_socketio: true,
 			parent: this.page.main.find(".upload-area"),
 			btn: this.page.main.find(".btn-import"),
 			get_params: function() {
 				return {
 					submit_after_import: me.page.main.find('[name="submit_after_import"]').prop("checked"),
 					ignore_encoding_errors: me.page.main.find('[name="ignore_encoding_errors"]').prop("checked"),
+					skip_errors: me.page.main.find('[name="skip_errors"]').prop("checked"),
 					overwrite: !me.page.main.find('[name="always_insert"]').prop("checked"),
-					no_email: me.page.main.find('[name="no_email"]').prop("checked")
+					update_only: me.page.main.find('[name="update_only"]').prop("checked"),
+					no_email: me.page.main.find('[name="no_email"]').prop("checked"),
+					from_data_import: 'Yes'
 				}
 			},
 			args: {
 				method: 'frappe.core.page.data_import_tool.importer.upload',
 			},
+			allow_multiple: 0,
 			onerror: function(r) {
 				me.onerror(r);
 			},
 			queued: function() {
 				// async, show queued
 				msg_dialog.clear();
-				msgprint(__("Import Request Queued. This may take a few moments, please be patient."));
+				frappe.msgprint(__("Import Request Queued. This may take a few moments, please be patient."));
 			},
 			running: function() {
 				// update async status as running
 				msg_dialog.clear();
-				msgprint(__("Importing..."));
+				frappe.msgprint(__("Importing..."));
 				me.write_messages([__("Importing")]);
 				me.has_progress = false;
 			},
@@ -185,6 +192,8 @@ frappe.DataImportTool = Class.extend({
 			} else if(v.substr(0,7)=='Updated') {
 				$p.css('color', 'green');
 			} else if(v.substr(0,5)=='Valid') {
+				$p.css('color', '#777');
+			} else if(v.substr(0,7)=='Ignored') {
 				$p.css('color', '#777');
 			}
 		}

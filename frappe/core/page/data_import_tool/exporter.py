@@ -6,10 +6,11 @@ from __future__ import unicode_literals
 import frappe, json
 from frappe import _
 import frappe.permissions
-import re
+import re, csv, os
 from frappe.utils.csvutils import UnicodeWriter
 from frappe.utils import cstr, formatdate, format_datetime
 from  frappe.core.page.data_import_tool.data_import_tool import get_data_keys
+from six import string_types
 
 reflags = {
 	"I":re.I,
@@ -22,13 +23,14 @@ reflags = {
 }
 
 @frappe.whitelist()
-def get_template(doctype=None, parent_doctype=None, all_doctypes="No", with_data="No", select_columns=None):
+def get_template(doctype=None, parent_doctype=None, all_doctypes="No", with_data="No", select_columns=None,
+	from_data_import="No", excel_format="No"):
 	all_doctypes = all_doctypes=="Yes"
 	if select_columns:
 		select_columns = json.loads(select_columns);
 	docs_to_export = {}
 	if doctype:
-		if isinstance(doctype, basestring):
+		if isinstance(doctype, string_types):
 			doctype = [doctype];
 		if len(doctype) > 1:
 			docs_to_export = doctype[1]
@@ -79,7 +81,7 @@ def get_template(doctype=None, parent_doctype=None, all_doctypes="No", with_data
 			if field and ((select_columns and f[0] in select_columns[dt]) or not select_columns):
 				tablecolumns.append(field)
 
-		tablecolumns.sort(lambda a, b: int(a.idx - b.idx))
+		tablecolumns.sort(key = lambda a: int(a.idx))
 
 		_column_start_end = frappe._dict(start=0)
 
@@ -280,7 +282,26 @@ def get_template(doctype=None, parent_doctype=None, all_doctypes="No", with_data
 	add_field_headings()
 	add_data()
 
-	# write out response as a type csv
-	frappe.response['result'] = cstr(w.getvalue())
-	frappe.response['type'] = 'csv'
-	frappe.response['doctype'] = doctype
+	if from_data_import == "Yes" and excel_format == "Yes":
+		filename = frappe.generate_hash("", 10)
+		with open(filename, 'wb') as f:
+			f.write(cstr(w.getvalue()).encode("utf-8"))
+		f = open(filename)
+		reader = csv.reader(f)
+
+		from frappe.utils.xlsxutils import make_xlsx
+		xlsx_file = make_xlsx(reader, "Data Import Template")
+
+		f.close()
+		os.remove(filename)
+
+		# write out response as a xlsx type
+		frappe.response['filename'] = doctype + '.xlsx'
+		frappe.response['filecontent'] = xlsx_file.getvalue()
+		frappe.response['type'] = 'binary'
+
+	else:
+		# write out response as a type csv
+		frappe.response['result'] = cstr(w.getvalue())
+		frappe.response['type'] = 'csv'
+		frappe.response['doctype'] = doctype

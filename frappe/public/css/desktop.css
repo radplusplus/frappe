@@ -59,7 +59,6 @@ body[data-route="desktop"] .navbar-default {
   width: 32px;
 }
 .app-icon path {
-  fill: #fafbfc;
   transition: 0.2s;
   -webkit-transition: 0.2s;
 }
@@ -79,9 +78,6 @@ body[data-route="desktop"] .navbar-default {
   text-shadow: none;
   letter-spacing: normal;
   cursor: pointer;
-}
-.app-icon:hover path {
-  fill: #fff;
 }
 .app-icon:hover i,
 .app-icon:hover {
@@ -190,12 +186,13 @@ body[data-route="desktop"] .navbar-set-desktop-icons {
   position: fixed;
   bottom: 30px;
   width: 100%;
+  padding: 0px 10px;
 }
 .help-message-wrapper .help-message-container {
   position: relative;
   text-align: left;
   margin: auto;
-  width: 500px;
+  max-width: 500px;
   background-color: #fff;
   padding: 10px 15px 15px 15px;
   border-radius: 3px;

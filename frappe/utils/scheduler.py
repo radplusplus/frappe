@@ -8,7 +8,7 @@ Events:
 	weekly
 """
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 
 import frappe
 import json
@@ -16,14 +16,15 @@ import schedule
 import time
 import MySQLdb
 import frappe.utils
+import os
 from frappe.utils import get_sites
 from datetime import datetime
-from background_jobs import enqueue, get_jobs, queue_timeout
+from frappe.utils.background_jobs import enqueue, get_jobs, queue_timeout
 from frappe.limits import has_expired
 from frappe.utils.data import get_datetime, now_datetime
 from frappe.core.doctype.user.user import STANDARD_USERS
 from frappe.installer import update_site_config
-from frappe.integration_broker.doctype.integration_service.integration_service import get_integration_service_events
+from six import string_types
 
 DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
@@ -40,6 +41,11 @@ def start_scheduler():
 
 def enqueue_events_for_all_sites():
 	'''Loop through sites and enqueue events that are not already queued'''
+
+	if os.path.exists(os.path.join('.', '.restarting')):
+		# Don't add task to queue if webserver is in restart mode
+		return
+
 	with frappe.init_site():
 		jobs_per_site = get_jobs()
 		sites = get_sites()
@@ -49,7 +55,7 @@ def enqueue_events_for_all_sites():
 			enqueue_events_for_site(site=site, queued_jobs=jobs_per_site[site])
 		except:
 			# it should try to enqueue other sites
-			print frappe.get_traceback()
+			print(frappe.get_traceback())
 
 def enqueue_events_for_site(site, queued_jobs):
 	try:
@@ -158,20 +164,14 @@ def trigger(site, event, queued_jobs=(), now=False):
 		else:
 			scheduler_task(site=site, event=event, handler=handler, now=True)
 
-
 def get_scheduler_events(event):
 	'''Get scheduler events from hooks and integrations'''
 	scheduler_events = frappe.cache().get_value('scheduler_events')
 	if not scheduler_events:
 		scheduler_events = frappe.get_hooks("scheduler_events")
-		integration_events = get_integration_service_events()
-		for key, handlers in integration_events.items():
-			scheduler_events.setdefault(key, []).extend(handlers)
 		frappe.cache().set_value('scheduler_events', scheduler_events)
 
 	return scheduler_events.get(event) or []
-
-
 
 def log(method, message=None):
 	"""log error in patch_log"""
@@ -199,7 +199,7 @@ def get_enabled_scheduler_events():
 
 	enabled_events = frappe.db.get_global("enabled_scheduler_events")
 	if enabled_events:
-		if isinstance(enabled_events, basestring):
+		if isinstance(enabled_events, string_types):
 			enabled_events = json.loads(enabled_events)
 
 		return enabled_events
@@ -214,11 +214,7 @@ def is_scheduler_disabled():
 	return not frappe.utils.cint(frappe.db.get_single_value("System Settings", "enable_scheduler"))
 
 def toggle_scheduler(enable):
-	ss = frappe.get_doc("System Settings")
-	ss.enable_scheduler = 1 if enable else 0
-	ss.flags.ignore_mandatory = True
-	ss.flags.ignore_permissions = True
-	ss.save()
+	frappe.db.set_value("System Settings", None, "enable_scheduler", 1 if enable else 0)
 
 def enable_scheduler():
 	toggle_scheduler(True)
@@ -277,7 +273,7 @@ def reset_enabled_scheduler_events(login_manager):
 	if login_manager.info.user_type == "System User":
 		try:
 			frappe.db.set_global('enabled_scheduler_events', None)
-		except MySQLdb.OperationalError, e:
+		except MySQLdb.OperationalError as e:
 			if e.args[0]==1205:
 				frappe.log_error(frappe.get_traceback(), "Error in reset_enabled_scheduler_events")
 			else:

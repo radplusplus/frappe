@@ -59,11 +59,11 @@ def make_tree_args(**kwarg):
 	
 	doctype = kwarg['doctype']
 	parent_field = 'parent_' + doctype.lower().replace(' ', '_')
-	name_field = doctype.lower().replace(' ', '_') + '_name'
+	name_field = kwarg.get('name_field', doctype.lower().replace(' ', '_') + '_name')
 	
 	kwarg.update({
 		name_field: kwarg[name_field],
-		parent_field: kwarg["parent"]
+		parent_field: kwarg.get("parent") or kwarg.get(parent_field)
 	})
 	
 	return frappe._dict(kwarg)

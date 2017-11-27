@@ -4,9 +4,6 @@
 frappe.provide("frappe.customize_form");
 
 frappe.ui.form.on("Customize Form", {
-	setup: function(frm) {
-		frm.get_docfield("fields").allow_bulk_edit = 1;
-	},
 	onload: function(frm) {
 		frappe.customize_form.add_fields_help(frm);
 
@@ -16,9 +13,10 @@ frappe.ui.form.on("Customize Form", {
 				filters: [
 					['DocType', 'issingle', '=', 0],
 					['DocType', 'custom', '=', 0],
-					['DocType', 'name', 'not in', 'DocType, DocField, DocPerm, User, Role, UserRole, \
-						 Page, Page Role, Module Def, Print Format, Report, Customize Form, \
-						 Customize Form Field']
+					['DocType', 'name', 'not in', 'DocType, DocField, DocPerm, User, Role, Has Role, \
+						Page, Has Role, Module Def, Print Format, Report, Customize Form, \
+						Customize Form Field, Property Setter, Custom Field, Custom Script'],
+					['DocType', 'restrict_to_domain', 'in', frappe.boot.active_domains]
 				]
 			};
 		});
@@ -45,6 +43,8 @@ frappe.ui.form.on("Customize Form", {
 					frm.trigger("setup_sortable");
 				}
 			});
+		} else {
+			frm.refresh();
 		}
 	},
 
@@ -76,6 +76,10 @@ frappe.ui.form.on("Customize Form", {
 				frappe.customize_form.confirm(__('Remove all customizations?'), frm);
 			}, "fa fa-eraser", "btn-default");
 
+			frm.add_custom_button(__('Set Permissions'), function() {
+				frappe.set_route('permission-manager', frm.doc.doc_type);
+			}, "fa fa-lock", "btn-default");
+
 			if(frappe.boot.developer_mode) {
 				frm.add_custom_button(__('Export Customizations'), function() {
 					frappe.prompt(
@@ -84,6 +88,8 @@ frappe.ui.form.on("Customize Form", {
 								label: __('Module to Export')},
 							{fieldtype:'Check', fieldname:'sync_on_migrate',
 								label: __('Sync on Migrate'), 'default': 1},
+							{fieldtype:'Check', fieldname:'with_permissions',
+								label: __('Export Custom Permissions'), 'default': 1},
 						],
 						function(data) {
 							frappe.call({
@@ -91,7 +97,8 @@ frappe.ui.form.on("Customize Form", {
 								args: {
 									doctype: frm.doc.doc_type,
 									module: data.module,
-									sync_on_migrate: data.sync_on_migrate
+									sync_on_migrate: data.sync_on_migrate,
+									with_permissions: data.with_permissions
 								}
 							});
 						},
@@ -123,7 +130,7 @@ frappe.ui.form.on("Customize Form Field", {
 	before_fields_remove: function(frm, doctype, name) {
 		var row = frappe.get_doc(doctype, name);
 		if(!(row.is_custom_field || row.__islocal)) {
-			msgprint(__("Cannot delete standard field. You can hide it if you want"));
+			frappe.msgprint(__("Cannot delete standard field. You can hide it if you want"));
 			throw "cannot delete custom field";
 		}
 	},
@@ -139,10 +146,12 @@ frappe.customize_form.set_primary_action = function(frm) {
 			return frm.call({
 				doc: frm.doc,
 				freeze: true,
+				btn: frm.page.btn_primary,
 				method: "save_customization",
 				callback: function(r) {
 					if(!r.exc) {
 						frappe.customize_form.clear_locals_and_refresh(frm);
+						frm.script_manager.trigger("doc_type");
 					}
 				}
 			});
@@ -164,7 +173,7 @@ frappe.customize_form.confirm = function(msg, frm) {
 				method: "reset_to_defaults",
 				callback: function(r) {
 					if(r.exc) {
-						msgprint(r.exc);
+						frappe.msgprint(r.exc);
 					} else {
 						d.hide();
 						frappe.customize_form.clear_locals_and_refresh(frm);
@@ -255,7 +264,7 @@ frappe.customize_form.add_fields_help = function(frm) {
 					<td>\
 						Show field if a condition is met<br />\
 						Example: <code>eval:doc.status=='Cancelled'</code>\
-						 on a field like \"reason_for_cancellation\" will reveal \
+						on a field like \"reason_for_cancellation\" will reveal \
 						\"Reason for Cancellation\" only if the record is Cancelled.\
 					</td>\
 				</tr>\
